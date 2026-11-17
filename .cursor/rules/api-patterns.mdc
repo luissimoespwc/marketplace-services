@@ -1,0 +1,57 @@
+
+---
+description: Backend API and workflow conventions for the custom Enterprise Data Product Marketplace service (NestJS and TypeScript).
+globs: src/**, test/**, tests/**, db/**, prisma/**
+alwaysApply: false
+---
+
+# Marketplace service API patterns
+
+## Scope and stack
+- Applies to custom marketplace backend and tests, not to the upstream DataHub GMS implementation.
+- Use NestJS and TypeScript for new code, following this repository's established module, dependency-injection, lint, and test conventions.
+- Organize by business capability (for example access-requests, approvals, subscriptions, integrations) using controllers, services, DTOs, and repositories/adapters where appropriate.
+- Consult `marketplace-platform/docs/api-contracts.md` and `docs/architecture.md` when accessible. If they are absent, call out the gap rather than inventing an established contract.
+
+## Responsibilities and boundaries
+- DataHub remains the system of record for metadata, ownership, domains, Data Products, and lineage.
+- This service owns marketplace-specific workflow state, requests, approvals, subscriptions, notifications, and audit history.
+- Access DataHub only through supported, version-verified APIs/SDKs. Never read or write DataHub's PostgreSQL or search indexes directly.
+- Isolate DataHub calls behind an adapter with typed interfaces, explicit errors, and tested mappings between DataHub URNs and marketplace identifiers.
+- Do not modify DataHub GMS or invent undocumented GraphQL fields to implement marketplace behavior.
+
+## API conventions
+- Prefix REST endpoints with a consistent versioned namespace, e.g. `/api/v1`; follow existing patterns if the repository already defines one.
+- Validate all request inputs using DTOs and the repository's validation pipeline; reject unknown or malformed input at the boundary.
+- Return stable response DTOs and consistent errors; do not expose stack traces or internal service details.
+- Document endpoints, payloads, authorization requirements, error responses, and pagination via OpenAPI when supported by the project.
+- Use cursor-based pagination for large collections when appropriate; impose reasonable server-side limits.
+- Apply timeouts, bounded retries with backoff for transient failures, and clear downstream error mapping. Do not retry non-idempotent operations blindly.
+
+## Authentication and authorization
+- Authenticate callers at the backend using validated enterprise tokens/session context and trusted issuer, audience, signature, and expiration checks.
+- Never trust user IDs, roles, groups, or approval authority asserted only in browser request bodies or headers.
+- Enforce per-operation authorization and ownership checks for reads and writes; deny by default.
+- Use least-privilege DataHub service credentials, secured server-side; do not forward service tokens to browsers.
+- Treat DataHub Core catalog search visibility separately from authorization to view protected metadata and separately from authorization to query underlying data.
+- Keep secrets in environment/secret management, not source, fixtures, logs, or API payloads.
+
+## Workflow consistency
+- Model access requests with explicit statuses and allowed state transitions. Verify the actor is authorized for each transition.
+- Make create/approve/provision operations idempotent where repeat delivery is possible; use idempotency keys or unique constraints as appropriate.
+- Persist status transitions, actor, timestamps, rationale, and external provisioning references in an auditable manner.
+- Use database transactions for related state changes. For async provisioning, prefer durable jobs or an outbox pattern over in-memory fire-and-forget tasks.
+- Distinguish approval from successful data-platform provisioning; do not claim access is granted until the target platform confirms it.
+- Prevent duplicate processing, stale approvals, and contradictory state transitions with concurrency controls.
+
+## Data and integrations
+- Store marketplace operational records in its own schema/database; keep metadata authority in DataHub.
+- Parameterize database queries, manage migrations explicitly, and avoid persisting tokens or unnecessary personal data.
+- Define interfaces for provider-specific provisioning adapters (for example Snowflake or Databricks); do not bake a single platform into generic workflow logic.
+- Propagate correlation/request IDs across logs and integrations, while redacting secrets and sensitive fields.
+
+## Testing and delivery
+- Add unit tests for services/state transitions, contract tests for DataHub adapters, and integration tests for APIs and persistence.
+- Test unauthorized access, invalid input, timeouts, idempotent retries, duplicate requests, and failed provisioning.
+- Mock external services in unit tests; use integration environments for real adapter compatibility checks.
+- Before implementation, identify affected API contracts and database migrations. Afterward, report the tests actually run and any unverified integrations.
